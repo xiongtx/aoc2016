@@ -226,29 +226,79 @@
   [state k vs]
   (update state k #(apply conj %1 %2) vs))
 
-(defn possible-moves
-  ([state elevator k]
-   (let [max-floor (dec (count state))]
-     (for [items (combinations (nth state elevator))
-           new-elevator (condp = elevator
-                          max-floor [(dec max-floor)]
-                          0 [1]
-                          [(dec elevator) (inc elevator)])
-           :let [new-state (-> state
-                               (remove-from-floor elevator items)
-                               (add-to-floor new-elevator items))]
-           :when (not (or (invalid-floor? new-state elevator)
-                        (invalid-floor? new-state new-elevator)))]
-       [new-state new-elevator (inc k)]))))
+(defn equivalent-representation
+  "Return a representation of state that is equivalent to others modulo chip /
+  generator names."
+  [state]
+  (->> (for [[floor items] (map-indexed #(vector %1 %2) state)
+             [tag name] items]
+         [tag name floor])
+       (group-by second)
+       vals
+       (map sort)
+       (map (fn [[[_ _ generator-floor]
+                 [_ _ microchip-floor]]]
+              [microchip-floor generator-floor]))
+       frequencies))
+
+(defn new-states
+  ([state elevator k known]
+   (for [items (combinations (nth state elevator))
+         new-elevator (case elevator
+                        3 [2]
+                        0 [1]
+                        [(dec elevator) (inc elevator)])
+         :let [new-state (-> state
+                             (remove-from-floor elevator items)
+                             (add-to-floor new-elevator items))]
+         :when (not (invalid-floor? new-state elevator))
+         :when (not (invalid-floor? new-state new-elevator))
+         :when (not (known [(equivalent-representation new-state)
+                            new-elevator]))]
+     [new-state new-elevator (inc k)])))
 
 (defn num-moves
-  [states seen-states n]
-  (when (zero? (mod n 1E4))
-    (println n))
-  (when-let [[state elevator k] (first states)]
-    (cond
-      (end-state? state) k
-      (contains? seen-states [state k]) (recur (subvec states 1) seen-states (inc n))
-      :else (recur (into (subvec states 1) (possible-moves state elevator k))
-                   (conj seen-states [state k])
-                   (inc n)))))
+  ([states]
+   (num-moves states #{} 0))
+  ([states known n]
+   (when (not-empty states)
+     (let [[state elevator k] (first states)]
+       (if (end-state? state)
+         k
+         (let [new-states (new-states state elevator k known)]
+           (recur (into (subvec states 1) new-states)
+                  (into known (for [[state elevator _] new-states]
+                                [(equivalent-representation state) elevator]))
+                  (inc n))))))))
+
+
+;;; Part 2
+
+;;; You step into the cleanroom separating the lobby from the isolated area
+;;; and put on the hazmat suit.
+
+;; Upon entering the isolated containment area, however, you notice some extra
+;; parts on the first floor that weren't listed on the record outside:
+
+;; - An elerium generator.
+
+;; - An elerium-compatible microchip.
+
+;; - A dilithium generator.
+
+;; - A dilithium-compatible microchip.
+
+;; These work just like the other generators and microchips. You'll have to
+;; get them up to assembly as well.
+
+;; What is the minimum number of steps required to bring all of the objects,
+;; including these four new ones, to the fourth floor?
+
+(def new-components #{[:microchip "elerium"]
+                      [:generator "elerium"]
+                      [:microchip "dilithium"]
+                      [:generator "dilithium"]})
+
+(defn add-to-first-floor
+  [state compoments]
+  (update state 0 into compoments))
